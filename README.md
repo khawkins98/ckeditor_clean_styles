@@ -1,6 +1,8 @@
 CKEditor Clean Styles for Drupal
 ================================
 
+![demo-of-editing](https://github.com/user-attachments/assets/e99659f1-fd00-4737-b753-26916d758cfd)
+
 Provides a CKEditor 5 toolbar button for Drupal 10 and 11, labeled "Clean Text Styles", that removes unwanted text formatting artifacts from pasted content. It removes inline styles, Word-specific classes and attributes, and normalizes non‑breaking spaces.
 
 As of September 2025 there is still no good way to this in Drupal; see: https://www.drupal.org/project/drupal/issues/3321254

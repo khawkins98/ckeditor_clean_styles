@@ -1,0 +1,9 @@
+name: 'CKEditor Clean Styles'
+type: module
+description: 'Provides CKEditor 5 plugin to clean unwanted text formatting artifacts from pasted content'
+package: 'Text Editors'
+version: '1.0.0-alpha1'
+core_version_requirement: ^10 || ^11
+
+dependencies:
+  - drupal:ckeditor5

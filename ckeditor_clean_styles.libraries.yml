@@ -1,0 +1,10 @@
+# CKEditor 5 Clean Text Styles plugin
+clean_text_styles:
+  version: VERSION
+  js:
+    js/cleanTextStyles.js: { minified: false }
+  css:
+    theme:
+      css/ckeditor5-clean-text-styles-admin.css: {}
+  dependencies:
+    - core/ckeditor5

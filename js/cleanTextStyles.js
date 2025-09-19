@@ -34,14 +34,36 @@
         "BCX",
         "ListContainerWrapper",
         "NormalTextRun",
+        "normaltextrun",
+        "WordSection1",
+        "spellingerror",
         "EOP",
         "Paragraph",
         "MsoNormal",
         "MsoListParagraph",
         "MsoBodyText",
       ],
-      WORD_ATTRIBUTES: ["id", "paraid", "paraeid"],
+      // Attributes to always remove when encountered
+      ATTRS_REMOVE_ALWAYS: ["lang", "language", "align", "paraid", "paraeid"],
+      // HR presentational attributes to strip
+      HR_ATTRS_TO_REMOVE: ["align", "size", "width", "color", "noshade"],
+      // Namespace/prefix handling
+      VML_PREFIX: "v:",
+      VML_SHAPES_ATTR: "v:shapes",
+      // Regex patterns (as strings) for special removals
+      MSO_ANCHOR_PATTERN: "(^|_)msoanchor",
+      WORD_ID_PATTERN: "^(OLE_LINK|_Toc|_Ref)\\d*$",
     };
+
+    // Detection for Word-specific class substrings.
+    const WORD_CLASS_SUBSTRINGS = CONFIG.WORD_CLASSES.map(function (s) {
+      return String(s).toLowerCase();
+    });
+
+    // Attribute cleanup helpers
+    const UNCONDITIONAL_REMOVE_ATTRS = new Set(CONFIG.ATTRS_REMOVE_ALWAYS);
+    const MSOANCHOR_REGEX = new RegExp(CONFIG.MSO_ANCHOR_PATTERN, "i");
+    const WORD_ID_PREFIX_REGEX = new RegExp(CONFIG.WORD_ID_PATTERN);
 
     /**
      * Clean Text Styles plugin for CKEditor 5.
@@ -113,10 +135,7 @@
 
             // Prefer using DataController.stringify when available to serialize the model fragment.
             let selectedHtml = null;
-            if (
-              editor.data &&
-              typeof editor.data.stringify === "function"
-            ) {
+            if (editor.data && typeof editor.data.stringify === "function") {
               selectedHtml = editor.data.stringify(modelFragment);
             }
 
@@ -124,7 +143,8 @@
               const cleanedSelected = this._cleanTextStyles(selectedHtml);
 
               if (cleanedSelected !== selectedHtml) {
-                const viewFragment = editor.data.processor.toView(cleanedSelected);
+                const viewFragment =
+                  editor.data.processor.toView(cleanedSelected);
                 const modelClean = editor.data.toModel(viewFragment);
 
                 editor.model.change(() => {
@@ -162,9 +182,15 @@
         }
 
         try {
+          // Normalize non-breaking spaces before parsing to simplify downstream cleanup
+          const normalizedHtml = html.replace(
+            /(?:&nbsp;|&#160;|&#xA0;|&#xa0;|\u00A0)/g,
+            " "
+          );
+
           // Create a temporary container to parse HTML
           const tempDiv = document.createElement("div");
-          tempDiv.innerHTML = html;
+          tempDiv.innerHTML = normalizedHtml;
 
           // Clean all elements
           const allElements = tempDiv.querySelectorAll("*");
@@ -172,8 +198,36 @@
             this._cleanHtmlElement(allElements[i]);
           }
 
-          // Return cleaned HTML with non-breaking spaces normalized
-          return tempDiv.innerHTML.replace(/(?:&nbsp;|\u00A0)/g, " ");
+          // Remove paragraphs that are effectively empty:
+          //  - only whitespace text
+          //  - and either no element children or only <br> children
+          const paragraphs = tempDiv.querySelectorAll("p");
+          for (let pi = 0; pi < paragraphs.length; pi++) {
+            const p = paragraphs[pi];
+            if (!p) continue;
+
+            const onlyWhitespace = (p.textContent || "").trim().length === 0;
+            if (!onlyWhitespace) continue;
+
+            const children = p.children || [];
+            const hasNoElementChildren = children.length === 0;
+            const onlyBrChildren = hasNoElementChildren
+              ? true
+              : Array.prototype.every.call(children, function (child) {
+                  return (
+                    child &&
+                    child.tagName &&
+                    child.tagName.toLowerCase() === "br"
+                  );
+                });
+
+            if ((hasNoElementChildren || onlyBrChildren) && p.parentNode) {
+              p.parentNode.removeChild(p);
+            }
+          }
+
+          // Return cleaned HTML
+          return tempDiv.innerHTML;
         } catch (error) {
           return html; // Return original on error
         }
@@ -183,15 +237,11 @@
        * Cleans a single HTML DOM element.
        *
        * @param {Element} element - The DOM element to clean
-       * @return {boolean} - True if any changes were made
        */
       _cleanHtmlElement(element) {
-        let changed = false;
-
         // Remove ALL inline styles (aggressive cleaning)
         if (element.hasAttribute("style")) {
           element.removeAttribute("style");
-          changed = true;
         }
 
         // Clean class attribute
@@ -205,51 +255,52 @@
             } else {
               element.setAttribute("class", cleanedClasses);
             }
-            changed = true;
           }
         }
 
-        // Remove Word-specific attributes (excluding class and style which we handle above)
-        for (let i = 0; i < CONFIG.WORD_ATTRIBUTES.length; i++) {
-          const attr = CONFIG.WORD_ATTRIBUTES[i];
-          if (element.hasAttribute(attr)) {
-            const value = element.getAttribute(attr);
-            if (this._isWordSpecificValue(attr, value)) {
-              element.removeAttribute(attr);
-              changed = true;
+        // Remove inline event handlers and other undesirable attributes
+        // Iterate a copy because we'll mutate attributes while iterating
+        const attrs = Array.prototype.slice.call(element.attributes || []);
+        for (let k = 0; k < attrs.length; k++) {
+          const attrNode = attrs[k];
+          const attrName = String(attrNode.name || "");
+          const attrValue = String(attrNode.value || "");
+          const nameLower = attrName.toLowerCase();
+
+          const isInlineEventHandler = nameLower.startsWith("on");
+          const isUnconditionalRemoval =
+            UNCONDITIONAL_REMOVE_ATTRS.has(nameLower);
+          const isVmlNamespace =
+            nameLower === CONFIG.VML_SHAPES_ATTR ||
+            nameLower.startsWith(CONFIG.VML_PREFIX);
+          const isMsoAnchorName =
+            nameLower === "name" && MSOANCHOR_REGEX.test(attrValue);
+          const isWordSpecificId =
+            nameLower === "id" &&
+            (WORD_ID_PREFIX_REGEX.test(attrValue) ||
+              attrValue.includes("Word") ||
+              attrValue.includes("Office"));
+
+          if (
+            isInlineEventHandler ||
+            isUnconditionalRemoval ||
+            isVmlNamespace ||
+            isMsoAnchorName ||
+            isWordSpecificId
+          ) {
+            element.removeAttribute(attrName);
+            continue;
+          }
+        }
+
+        // Preserve <hr> but drop presentational attributes
+        if (element.tagName && element.tagName.toLowerCase() === "hr") {
+          const hrAttrs = CONFIG.HR_ATTRS_TO_REMOVE;
+          for (let h = 0; h < hrAttrs.length; h++) {
+            if (element.hasAttribute(hrAttrs[h])) {
+              element.removeAttribute(hrAttrs[h]);
             }
           }
-        }
-
-        return changed;
-      }
-
-      /**
-       * Checks if an attribute value is Word-specific.
-       *
-       * @param {string} attribute - The attribute name
-       * @param {string} value - The attribute value
-       * @return {boolean} - True if the value is Word-specific
-       */
-      _isWordSpecificValue(attribute, value) {
-        if (!value || typeof value !== "string") {
-          return false;
-        }
-
-        switch (attribute) {
-          case "id":
-            return (
-              /^(OLE_LINK|_Toc|_Ref)\d*$/.test(value) ||
-              value.includes("Word") ||
-              value.includes("Office")
-            );
-
-          case "paraid":
-          case "paraeid":
-            return true;
-
-          default:
-            return false;
         }
       }
 
@@ -265,28 +316,24 @@
         }
 
         const classes = classString.split(/\s+/);
-        const cleanedClasses = [];
-
+        const cleaned = [];
         for (let i = 0; i < classes.length; i++) {
           const cls = classes[i];
-          if (!cls.trim()) {
+          if (!cls || !cls.trim()) {
             continue;
           }
-
-          let isWordClass = false;
-          for (let j = 0; j < CONFIG.WORD_CLASSES.length; j++) {
-            if (cls.includes(CONFIG.WORD_CLASSES[j])) {
-              isWordClass = true;
-              break;
-            }
-          }
-
-          if (!isWordClass) {
-            cleanedClasses.push(cls);
+          const token = cls.trim();
+          const tokenLower = token.toLowerCase();
+          const containsWordSubstring = WORD_CLASS_SUBSTRINGS.some(function (
+            needle
+          ) {
+            return tokenLower.indexOf(needle) !== -1;
+          });
+          if (!containsWordSubstring) {
+            cleaned.push(token);
           }
         }
-
-        return cleanedClasses.join(" ");
+        return cleaned.join(" ");
       }
     }
 

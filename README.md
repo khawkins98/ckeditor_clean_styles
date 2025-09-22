@@ -7,6 +7,8 @@ Provides a CKEditor 5 toolbar button for Drupal 10 and 11, labeled "Clean Text S
 
 As of September 2025 there is still no good way to this in Drupal; see: https://www.drupal.org/project/drupal/issues/3321254
 
+Read the a bit more about this in my post: [A stop-gap Drupal module to kill Word Junk in CKEditor 5](https://www.allaboutken.com/posts/20250919-killing-word-junk-drupal-ckeditor5-build-free-plugin/)
+
 Requirements
 ------------
 

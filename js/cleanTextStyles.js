@@ -3,8 +3,24 @@
  * @file
  * CKEditor 5 Clean Text Styles plugin - Build-free version.
  *
- * This plugin removes unwanted text formatting artifacts from pasted content.
- * Removes inline styles, document-specific classes, attributes, and &nbsp; entities.
+ * Adds a toolbar button to remove Microsoft Word HTML artifacts from content.
+ *
+ * Usage:
+ * - Select text and click button: Cleans only the selection
+ * - No selection and click button: Cleans entire document
+ *
+ * Removes:
+ * - ALL inline style attributes (style="...")
+ * - Word-specific classes (MsoNormal, SCXW, OutlineElement, etc.)
+ * - Word-specific attributes (paraid, paraeid, lang, etc.)
+ * - Word-specific IDs (OLE_LINK, _Toc, _Ref)
+ * - &nbsp; entities (replaced with spaces)
+ * - Empty paragraphs (including those with only whitespace)
+ *
+ * Technical:
+ * - Build-free UMD module (no npm compilation needed)
+ * - Works on CKEditor 5 model/view architecture
+ * - Operations are undoable (Ctrl+Z)
  */
 
 (function (global, factory) {
@@ -14,7 +30,7 @@
     define([], factory);
   } else {
     global.CKEditor5 = global.CKEditor5 || {};
-    global.CKEditor5.cleanTextStyles = factory();
+    global.CKEditor5.cleanWordHtml = factory();
   }
 })(
   typeof globalThis !== "undefined"
@@ -24,7 +40,7 @@
     : this,
   function () {
     /**
-     * Configuration for text formatting artifact cleanup.
+     * Configuration for Word artifact cleanup.
      */
     const CONFIG = {
       WORD_CLASSES: [
@@ -34,46 +50,25 @@
         "BCX",
         "ListContainerWrapper",
         "NormalTextRun",
-        "normaltextrun",
-        "WordSection1",
-        "spellingerror",
         "EOP",
         "Paragraph",
         "MsoNormal",
         "MsoListParagraph",
         "MsoBodyText",
       ],
-      // Attributes to always remove when encountered
-      ATTRS_REMOVE_ALWAYS: ["lang", "language", "align", "paraid", "paraeid"],
-      // HR presentational attributes to strip
-      HR_ATTRS_TO_REMOVE: ["align", "size", "width", "color", "noshade"],
-      // Namespace/prefix handling
-      VML_PREFIX: "v:",
-      VML_SHAPES_ATTR: "v:shapes",
-      // Regex patterns (as strings) for special removals
-      MSO_ANCHOR_PATTERN: "(^|_)msoanchor",
-      WORD_ID_PATTERN: "^(OLE_LINK|_Toc|_Ref)\\d*$",
+      WORD_ATTRIBUTES: ["id", "paraid", "paraeid", "lang", "style", "class"],
+      DEBUG: false, // Set to true to enable console logging
     };
-
-    // Detection for Word-specific class substrings.
-    const WORD_CLASS_SUBSTRINGS = CONFIG.WORD_CLASSES.map(function (s) {
-      return String(s).toLowerCase();
-    });
-
-    // Attribute cleanup helpers
-    const UNCONDITIONAL_REMOVE_ATTRS = new Set(CONFIG.ATTRS_REMOVE_ALWAYS);
-    const MSOANCHOR_REGEX = new RegExp(CONFIG.MSO_ANCHOR_PATTERN, "i");
-    const WORD_ID_PREFIX_REGEX = new RegExp(CONFIG.WORD_ID_PATTERN);
 
     /**
      * Clean Text Styles plugin for CKEditor 5.
      */
-    class CleanTextStyles extends globalThis.CKEditor5.core.Plugin {
+    class CleanWordHtml extends globalThis.CKEditor5.core.Plugin {
       /**
        * @inheritdoc
        */
       static get pluginName() {
-        return "CleanTextStyles";
+        return "CleanWordHtml";
       }
 
       /**
@@ -83,25 +78,30 @@
         const { editor } = this;
         const { t } = editor;
 
-        // Add the clean text styles command
-        editor.commands.add(
-          "cleanTextStyles",
-          new CleanTextStylesCommand(editor)
-        );
+        if (CONFIG.DEBUG) {
+          console.log("CleanTextStyles plugin initializing...");
+        }
+
+        // Add the clean word HTML command
+        editor.commands.add("cleanWordHtml", new CleanWordHtmlCommand(editor));
 
         // Add the button to the toolbar
-        editor.ui.componentFactory.add("cleanTextStyles", function (locale) {
-          const command = editor.commands.get("cleanTextStyles");
+        editor.ui.componentFactory.add("cleanWordHtml", function (locale) {
+          const command = editor.commands.get("cleanWordHtml");
           const buttonView = new globalThis.CKEditor5.ui.ButtonView(locale);
 
           buttonView.set({
             label: t("Clean Text Styles"),
             tooltip: true,
+            class: "ck-clean-word-html-button",
           });
 
           // Execute command when the button is clicked
           buttonView.on("execute", function () {
-            editor.execute("cleanTextStyles");
+            if (CONFIG.DEBUG) {
+              console.log("Clean Text Styles button clicked!");
+            }
+            editor.execute("cleanWordHtml");
             editor.editing.view.focus();
           });
 
@@ -110,125 +110,208 @@
 
           return buttonView;
         });
+
+        if (CONFIG.DEBUG) {
+          console.log("CleanTextStyles plugin initialized successfully");
+        }
       }
     }
 
     /**
      * Clean Text Styles command.
      */
-    class CleanTextStylesCommand extends globalThis.CKEditor5.core.Command {
+    class CleanWordHtmlCommand extends globalThis.CKEditor5.core.Command {
       constructor(editor) {
         super(editor);
+        this.isEnabled = true;
       }
 
       /**
-       * Executes the command - cleans text formatting artifacts from editor content.
+       * Executes the command - cleans Word HTML artifacts from editor content.
        */
       execute() {
-        const editor = this.editor;
-        const selection = editor.model.document.selection;
-
-        // If there is a non-collapsed selection, clean only the selected content.
-        if (!selection.isCollapsed) {
-          try {
-            const modelFragment = editor.model.getSelectedContent(selection);
-
-            // Prefer using DataController.stringify when available to serialize the model fragment.
-            let selectedHtml = null;
-            if (editor.data && typeof editor.data.stringify === "function") {
-              selectedHtml = editor.data.stringify(modelFragment);
-            }
-
-            if (typeof selectedHtml === "string") {
-              const cleanedSelected = this._cleanTextStyles(selectedHtml);
-
-              if (cleanedSelected !== selectedHtml) {
-                const viewFragment =
-                  editor.data.processor.toView(cleanedSelected);
-                const modelClean = editor.data.toModel(viewFragment);
-
-                editor.model.change(() => {
-                  // Replace the current selection with cleaned content.
-                  editor.model.deleteContent(selection);
-                  editor.model.insertContent(modelClean);
-                });
-              }
-
-              return; // Done handling selection case.
-            }
-            // If we cannot serialize selection, fall through to full document cleanup.
-          } catch (e) {
-            // On any error, fall back to full document cleanup below.
-          }
+        if (CONFIG.DEBUG) {
+          console.log("CleanTextStyles command executing...");
         }
 
-        // Fallback: clean the entire editor content.
-        const currentData = editor.getData();
-        const cleanedData = this._cleanTextStyles(currentData);
-        if (cleanedData !== currentData) {
-          editor.setData(cleanedData);
+        const model = this.editor.model;
+        const selection = model.document.selection;
+
+        // Check if there's a selection
+        if (!selection.isCollapsed) {
+          if (CONFIG.DEBUG) {
+            console.log("Cleaning selected content only");
+          }
+          this._cleanSelection();
+        } else {
+          if (CONFIG.DEBUG) {
+            console.log("No selection - cleaning entire document");
+          }
+          this._cleanEntireDocument();
         }
       }
 
       /**
-       * Cleans text formatting artifacts from raw HTML string.
+       * Cleans the currently selected content.
+       */
+      _cleanSelection() {
+        const model = this.editor.model;
+        const selection = model.document.selection;
+
+        model.change((writer) => {
+          // Get the selected content as HTML
+          const viewFragment = this.editor.data.toView(
+            model.getSelectedContent(selection)
+          );
+          const viewDocumentFragment = this.editor.data.processor.toData(
+            viewFragment
+          );
+
+          if (CONFIG.DEBUG) {
+            console.log("Selected content length:", viewDocumentFragment.length);
+          }
+
+          // Clean the selected HTML
+          const cleanedData = this._cleanWordHtml(viewDocumentFragment);
+
+          if (cleanedData !== viewDocumentFragment) {
+            if (CONFIG.DEBUG) {
+              console.log("Word HTML artifacts removed from selection");
+            }
+
+            // Parse the cleaned HTML back into model fragment
+            const viewFragmentCleaned = this.editor.data.processor.toView(
+              cleanedData
+            );
+            const modelFragment = this.editor.data.toModel(
+              viewFragmentCleaned
+            );
+
+            // Replace the selection with cleaned content
+            model.insertContent(modelFragment, selection);
+          } else {
+            if (CONFIG.DEBUG) {
+              console.log("No Word HTML artifacts found in selection");
+            }
+          }
+        });
+      }
+
+      /**
+       * Cleans the entire document content.
+       */
+      _cleanEntireDocument() {
+        // Get current HTML data from editor
+        const currentData = this.editor.getData();
+        if (CONFIG.DEBUG) {
+          console.log("Current data length:", currentData.length);
+          console.log(
+            "Current data preview:",
+            `${currentData.substring(0, 200)}...`
+          );
+        }
+
+        // Clean the HTML data
+        const cleanedData = this._cleanWordHtml(currentData);
+        if (CONFIG.DEBUG) {
+          console.log("Cleaned data length:", cleanedData.length);
+          console.log(
+            "Cleaned data preview:",
+            `${cleanedData.substring(0, 200)}...`
+          );
+        }
+
+        // Set the cleaned data back to editor
+        if (cleanedData !== currentData) {
+          this.editor.setData(cleanedData);
+          if (CONFIG.DEBUG) {
+            console.log("Word HTML artifacts removed successfully");
+          }
+        } else {
+          if (CONFIG.DEBUG) {
+            console.log("No Word HTML artifacts found to clean");
+          }
+        }
+      }
+
+      /**
+       * Cleans Word HTML artifacts from raw HTML string.
        *
        * @param {string} html - The HTML string to clean
        * @return {string} - The cleaned HTML string
        */
-      _cleanTextStyles(html) {
+      _cleanWordHtml(html) {
         if (!html || typeof html !== "string") {
           return html;
         }
 
         try {
-          // Normalize non-breaking spaces before parsing to simplify downstream cleanup
-          const normalizedHtml = html.replace(
-            /(?:&nbsp;|&#160;|&#xA0;|&#xa0;|\u00A0)/g,
-            " "
-          );
-
           // Create a temporary container to parse HTML
           const tempDiv = document.createElement("div");
-          tempDiv.innerHTML = normalizedHtml;
+          tempDiv.innerHTML = html;
 
           // Clean all elements
           const allElements = tempDiv.querySelectorAll("*");
-          for (let i = 0; i < allElements.length; i++) {
-            this._cleanHtmlElement(allElements[i]);
+          if (CONFIG.DEBUG) {
+            console.log(`Found ${allElements.length} elements to process`);
           }
 
-          // Remove paragraphs that are effectively empty:
-          //  - only whitespace text
-          //  - and either no element children or only <br> children
-          const paragraphs = tempDiv.querySelectorAll("p");
-          for (let pi = 0; pi < paragraphs.length; pi++) {
-            const p = paragraphs[pi];
-            if (!p) continue;
+          let elementsChanged = 0;
 
-            const onlyWhitespace = (p.textContent || "").trim().length === 0;
-            if (!onlyWhitespace) continue;
-
-            const children = p.children || [];
-            const hasNoElementChildren = children.length === 0;
-            const onlyBrChildren = hasNoElementChildren
-              ? true
-              : Array.prototype.every.call(children, function (child) {
-                  return (
-                    child &&
-                    child.tagName &&
-                    child.tagName.toLowerCase() === "br"
-                  );
-                });
-
-            if ((hasNoElementChildren || onlyBrChildren) && p.parentNode) {
-              p.parentNode.removeChild(p);
+          for (let i = 0; i < allElements.length; i++) {
+            if (this._cleanHtmlElement(allElements[i])) {
+              elementsChanged++;
             }
           }
 
+          if (CONFIG.DEBUG) {
+            console.log(`Cleaned ${elementsChanged} elements`);
+          }
+
+          // Get the cleaned HTML
+          let cleanedHTML = tempDiv.innerHTML;
+
+          // Remove &nbsp; entities (both HTML entity and Unicode character)
+          const originalLength = cleanedHTML.length;
+          cleanedHTML = cleanedHTML
+            .replace(/&nbsp;/g, " ")
+            .replace(/\u00A0/g, " ");
+
+          if (CONFIG.DEBUG && cleanedHTML.length !== originalLength) {
+            console.log(
+              `Removed ${originalLength - cleanedHTML.length} &nbsp; entities`
+            );
+          }
+
+          // Remove empty paragraphs (after &nbsp; removal)
+          tempDiv.innerHTML = cleanedHTML;
+          const paragraphs = tempDiv.querySelectorAll("p");
+          let emptyParagraphsRemoved = 0;
+
+          for (let i = 0; i < paragraphs.length; i++) {
+            const p = paragraphs[i];
+            const textContent = p.textContent.trim();
+
+            // Remove paragraph if it's empty or only contains whitespace
+            if (textContent === "") {
+              p.remove();
+              emptyParagraphsRemoved++;
+            }
+          }
+
+          if (CONFIG.DEBUG && emptyParagraphsRemoved > 0) {
+            console.log(`Removed ${emptyParagraphsRemoved} empty paragraphs`);
+          }
+          if (emptyParagraphsRemoved > 0) {
+            cleanedHTML = tempDiv.innerHTML;
+          }
+
           // Return cleaned HTML
-          return tempDiv.innerHTML;
+          return cleanedHTML;
         } catch (error) {
+          if (CONFIG.DEBUG) {
+            console.error("Error cleaning Word HTML:", error);
+          }
           return html; // Return original on error
         }
       }
@@ -237,11 +320,15 @@
        * Cleans a single HTML DOM element.
        *
        * @param {Element} element - The DOM element to clean
+       * @return {boolean} - True if any changes were made
        */
       _cleanHtmlElement(element) {
+        let changed = false;
+
         // Remove ALL inline styles (aggressive cleaning)
         if (element.hasAttribute("style")) {
           element.removeAttribute("style");
+          changed = true;
         }
 
         // Clean class attribute
@@ -255,52 +342,74 @@
             } else {
               element.setAttribute("class", cleanedClasses);
             }
+            changed = true;
           }
         }
 
-        // Remove inline event handlers and other undesirable attributes
-        // Iterate a copy because we'll mutate attributes while iterating
-        const attrs = Array.prototype.slice.call(element.attributes || []);
-        for (let k = 0; k < attrs.length; k++) {
-          const attrNode = attrs[k];
-          const attrName = String(attrNode.name || "");
-          const attrValue = String(attrNode.value || "");
-          const nameLower = attrName.toLowerCase();
-
-          const isInlineEventHandler = nameLower.startsWith("on");
-          const isUnconditionalRemoval =
-            UNCONDITIONAL_REMOVE_ATTRS.has(nameLower);
-          const isVmlNamespace =
-            nameLower === CONFIG.VML_SHAPES_ATTR ||
-            nameLower.startsWith(CONFIG.VML_PREFIX);
-          const isMsoAnchorName =
-            nameLower === "name" && MSOANCHOR_REGEX.test(attrValue);
-          const isWordSpecificId =
-            nameLower === "id" &&
-            (WORD_ID_PREFIX_REGEX.test(attrValue) ||
-              attrValue.includes("Word") ||
-              attrValue.includes("Office"));
-
+        // Remove Word-specific attributes (excluding class and style which we handle above)
+        for (let i = 0; i < CONFIG.WORD_ATTRIBUTES.length; i++) {
+          const attr = CONFIG.WORD_ATTRIBUTES[i];
           if (
-            isInlineEventHandler ||
-            isUnconditionalRemoval ||
-            isVmlNamespace ||
-            isMsoAnchorName ||
-            isWordSpecificId
+            attr !== "class" &&
+            attr !== "style" &&
+            element.hasAttribute(attr)
           ) {
-            element.removeAttribute(attrName);
-            continue;
-          }
-        }
-
-        // Preserve <hr> but drop presentational attributes
-        if (element.tagName && element.tagName.toLowerCase() === "hr") {
-          const hrAttrs = CONFIG.HR_ATTRS_TO_REMOVE;
-          for (let h = 0; h < hrAttrs.length; h++) {
-            if (element.hasAttribute(hrAttrs[h])) {
-              element.removeAttribute(hrAttrs[h]);
+            const value = element.getAttribute(attr);
+            if (this._isWordSpecificValue(attr, value)) {
+              element.removeAttribute(attr);
+              changed = true;
             }
           }
+        }
+
+        return changed;
+      }
+
+      /**
+       * Checks if an attribute value is Word-specific.
+       *
+       * @param {string} attribute - The attribute name
+       * @param {string} value - The attribute value
+       * @return {boolean} - True if the value is Word-specific
+       */
+      _isWordSpecificValue(attribute, value) {
+        if (!value || typeof value !== "string") {
+          return false;
+        }
+
+        switch (attribute) {
+          case "class":
+            for (let i = 0; i < CONFIG.WORD_CLASSES.length; i++) {
+              if (value.includes(CONFIG.WORD_CLASSES[i])) {
+                return true;
+              }
+            }
+            return false;
+
+          case "id":
+            return (
+              /^(OLE_LINK|_Toc|_Ref)\d*$/.test(value) ||
+              value.includes("Word") ||
+              value.includes("Office")
+            );
+
+          case "style":
+            return (
+              value.includes("mso-") ||
+              value.includes("margin:0cm") ||
+              value.includes("margin:0in") ||
+              value.includes("line-height:115%")
+            );
+
+          case "lang":
+            return value.length === 2;
+
+          case "paraid":
+          case "paraeid":
+            return true;
+
+          default:
+            return false;
         }
       }
 
@@ -316,30 +425,34 @@
         }
 
         const classes = classString.split(/\s+/);
-        const cleaned = [];
+        const cleanedClasses = [];
+
         for (let i = 0; i < classes.length; i++) {
           const cls = classes[i];
-          if (!cls || !cls.trim()) {
+          if (!cls.trim()) {
             continue;
           }
-          const token = cls.trim();
-          const tokenLower = token.toLowerCase();
-          const containsWordSubstring = WORD_CLASS_SUBSTRINGS.some(function (
-            needle
-          ) {
-            return tokenLower.indexOf(needle) !== -1;
-          });
-          if (!containsWordSubstring) {
-            cleaned.push(token);
+
+          let isWordClass = false;
+          for (let j = 0; j < CONFIG.WORD_CLASSES.length; j++) {
+            if (cls.includes(CONFIG.WORD_CLASSES[j])) {
+              isWordClass = true;
+              break;
+            }
+          }
+
+          if (!isWordClass) {
+            cleanedClasses.push(cls);
           }
         }
-        return cleaned.join(" ");
+
+        return cleanedClasses.join(" ");
       }
     }
 
     // Export the plugin
     return {
-      CleanTextStyles,
+      CleanWordHtml,
     };
   }
 );

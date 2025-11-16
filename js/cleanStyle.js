@@ -30,7 +30,7 @@
     define([], factory);
   } else {
     global.CKEditor5 = global.CKEditor5 || {};
-    global.CKEditor5.cleanWordHtml = factory();
+    global.CKEditor5.cleanStyle = factory();
   }
 })(
   typeof globalThis !== "undefined"
@@ -63,12 +63,12 @@
     /**
      * Clean Text Styles plugin for CKEditor 5.
      */
-    class CleanWordHtml extends globalThis.CKEditor5.core.Plugin {
+    class CleanStyle extends globalThis.CKEditor5.core.Plugin {
       /**
        * @inheritdoc
        */
       static get pluginName() {
-        return "CleanWordHtml";
+        return "CleanStyle";
       }
 
       /**
@@ -82,18 +82,18 @@
           console.log("CleanTextStyles plugin initializing...");
         }
 
-        // Add the clean word HTML command
-        editor.commands.add("cleanWordHtml", new CleanWordHtmlCommand(editor));
+        // Add the clean style command
+        editor.commands.add("cleanStyle", new CleanStyleCommand(editor));
 
         // Add the button to the toolbar
-        editor.ui.componentFactory.add("cleanWordHtml", function (locale) {
-          const command = editor.commands.get("cleanWordHtml");
+        editor.ui.componentFactory.add("cleanStyle", function (locale) {
+          const command = editor.commands.get("cleanStyle");
           const buttonView = new globalThis.CKEditor5.ui.ButtonView(locale);
 
           buttonView.set({
             label: t("Clean Text Styles"),
             tooltip: true,
-            class: "ck-clean-word-html-button",
+            class: "ck-clean-style-button",
           });
 
           // Execute command when the button is clicked
@@ -101,7 +101,7 @@
             if (CONFIG.DEBUG) {
               console.log("Clean Text Styles button clicked!");
             }
-            editor.execute("cleanWordHtml");
+            editor.execute("cleanStyle");
             editor.editing.view.focus();
           });
 
@@ -120,7 +120,7 @@
     /**
      * Clean Text Styles command.
      */
-    class CleanWordHtmlCommand extends globalThis.CKEditor5.core.Command {
+    class CleanStyleCommand extends globalThis.CKEditor5.core.Command {
       constructor(editor) {
         super(editor);
         this.isEnabled = true;
@@ -452,7 +452,7 @@
 
     // Export the plugin
     return {
-      CleanWordHtml,
+      CleanStyle,
     };
   }
 );

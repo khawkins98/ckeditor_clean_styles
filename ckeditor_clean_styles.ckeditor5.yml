@@ -1,13 +1,13 @@
 ckeditor_clean_styles_clean_text_styles:
   ckeditor5:
     plugins:
-      - cleanWordHtml.CleanWordHtml
+      - cleanStyle.CleanStyle
   drupal:
     label: Clean Text Styles
     library: ckeditor_clean_styles/clean_text_styles
     admin_library: ckeditor_clean_styles/clean_text_styles
     class: Drupal\ckeditor_clean_styles\Plugin\CKEditor5Plugin\CleanTextStyles
     toolbar_items:
-      cleanWordHtml:
+      cleanStyle:
         label: Clean Text Styles
     elements: false

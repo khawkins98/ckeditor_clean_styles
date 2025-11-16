@@ -2,9 +2,9 @@
  * @file
  * Admin styles for CKEditor 5 Clean Text Styles plugin.
  */
-.ckeditor5-toolbar-button-cleanTextStyles,
+.ckeditor5-toolbar-button-cleanStyle,
 [data-cke-tooltip-text="Clean Text Styles"],
-[data-drupal-ckeditor5-button-name="cleanTextStyles"]::before {
+[data-drupal-ckeditor5-button-name="cleanStyle"]::before {
   display: inline-block;
   width: 100%;
   height: 100%;

@@ -5,7 +5,14 @@ CKEditor Clean Styles for Drupal
 
 Provides a CKEditor 5 toolbar button for Drupal 10 and 11, labeled "Clean Text Styles", that removes unwanted text formatting artifacts from pasted content. It removes inline styles, Word-specific classes and attributes, and normalizes non‑breaking spaces.
 
-As of November 2025 there is still no good way to do this in Drupal; see: https://www.drupal.org/project/drupal/issues/3321254
+CKEditor v46 resolves this, but current Drupal versions (10.5.x and 11.2.x) use CKEditor v45.2.2, while future versions (10.6.x and 11.4.x) are expected to upgrade to v47.0.0.
+
+The proposed change represents a significant behavioral shift in CKEditor:
+
+- **v45 and earlier**: The "remove formatting" button only clears CKEditor-specific styles
+- **v46 and later**: The "remove formatting" button would clear all inline styles
+
+See: https://www.drupal.org/project/drupal/issues/3321254
 
 Read the a bit more about this in my post: [A stop-gap Drupal module to kill Word Junk in CKEditor 5](https://www.allaboutken.com/posts/20250919-killing-word-junk-drupal-ckeditor5-build-free-plugin/)
 
@@ -51,7 +58,7 @@ This plugin is intentionally build-free (no webpack, no npm dependencies). The C
 
 Workflow:
 
-1. Edit `js/cleanTextStyles.js` directly
+1. Edit `js/cleanStyle.js` directly
 2. Clear Drupal caches: `drush cr` (or `ddev drush cr`)
 3. Test in the editor
 

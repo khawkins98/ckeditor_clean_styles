@@ -2,7 +2,7 @@
 clean_text_styles:
   version: VERSION
   js:
-    js/cleanTextStyles.js: { minified: false }
+    js/cleanStyle.js: { minified: false }
   css:
     theme:
       css/ckeditor5-clean-text-styles-admin.css: {}
